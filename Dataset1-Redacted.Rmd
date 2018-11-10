@@ -1,0 +1,344 @@
+#Luis Pulido
+
+##Dataset 1 
+
+This data was found on: 
+
+https://www.kaggle.com/harlfoxem/housesalesprediction/data
+
+```{r}
+house <- read.csv('/home/luis/R/kc_house_data.csv')
+```
+
+###The R functions I used to explore the data set are dim()... 
+
+This set has 21613 rows which is... 
+
+Quick glance at some of the data in this set. 
+```{r}
+head(house, n =5)
+```
+
+List of the names 
+```{r}
+names(house)
+```
+
+
+I now use this to begin see which algorithms would work best and what I want to remove that I don't want in this data. 
+
+
+I start by getting rid of the id, date, lattitude, and longitute columns. They won't be useful for what I have planned. 
+
+
+A quick glance at this data. Price and sqft_lving seem to have a strong correlation. Bathrooms and sqft_living also seem to have a strong correlation. I think these would be great for linear regression. 
+
+```{r}
+pairs(houses[,c(1:6)], col="blue")
+```
+
+I split my data into train and test sets here. I make sure of remove columns I don't want such as zipcode, sqft_above, and sqft_basement. sqft_basement was removed for having "NA" in the data
+
+```{r}
+avgprice <- mean(houses$price)
+avgprice
+
+houses$avgprice <- ifelse(houses$price >= avgprice, 1, 0)
+#A quick check to see if I did this correctly. 
+head(houses[c(1,18)], n = 5)
+```
+
+
+```{r}
+houses$yr_built <- as.numeric(houses$yr_built)
+houses$grade <- as.numeric(houses$grade)
+
+
+set.seed(1234)
+f <- sample(2, nrow(houses), replace=TRUE, prob=c(.75,.25))
+train <- houses[f==1, -c(15,16,17,11,12)]
+test <- houses[f==2, -c(15,16,17,11,12)]
+
+```
+
+#Algorithm 1 
+
+##Linear regression 
+###Response:price
+###Predictors: all except avgprice
+I decided to start with a linear regression since the data seems to be very easily linearly sperable. After running a summary it makes sense that bedrooms, bathrooms, and sqft_living would be significant to the price. People usually expect the more those increase the more expensive a home would be. 
+
+```{r}
+lm1 <-lm(price~.-avgprice, data=train)
+summary(lm1)
+```
+
+This algorithm actually performed pretty well. Almost all of my predictors were very significant to the data. This model is able to explain 65% of the data due to the R^2 value.
+
+```{r}
+pred <- predict(lm1, newdata=test)
+cor(pred, test$price)
+residuals <- (pred - test$price)
+mse <- mean(residuals^2)
+mse
+```
+
+###The model had a correlation of 80.39%. The reason being was I used all predictors. 
+
+Below are some of the plots I felt were interesting. 
+
+```{r}
+par(mfrow=c(2,2))
+plot(price~bathrooms, data=houses, pch=2, col="purple", xlab="Bathrooms", ylab="Prices", main="Housing Data")
+abline(lm1, col="red")
+
+plot(price~sqft_living, data=houses, pch=2, col="purple", xlab="Living Sqft", ylab="Prices", main="Housing Data")
+abline(lm1, col="red")
+
+plot(price~bedrooms, data=houses, pch=2, col="purple", xlab="Bedrooms", ylab="Prices", main="Housing Data")
+abline(lm1, col="red")
+
+plot(price~yr_built, data=houses, pch=2, col="purple", xlab="Year Built", ylab="Prices", main="Housing Data")
+abline(lm1, col="red")
+#I had first plotted all the charts with each predictors and picked out the above 4. 
+#plot(price~., data=houses)
+#abline(lm1, col="red")
+```
+
+The linear model doesn't seem to fit the data very well according to my plots. It seems the prices in this area seem to be pretty steady over the years which I found surprising. I became curious about the prices in the set. It seems most of the houses in this set are very expensive. Most houses have 2-4 bathrooms and 5 bedrooms. They are between 2000-6000 living square feet large. 
+
+```{r}
+median(houses$price)
+mean(houses$price)
+```
+
+A second linear regression model to see if I can beat the previous one using less predictors. 
+
+###Response: price
+###Predictors: Interaction of bathrooms & sqft_living, yr_built, grade, condition, bedrooms & bathrooms interaction, floors, yr_built & yr_renovated interaction, sqft_lot, waterfront
+
+
+```{r}
+lm2 <-lm(price~bathrooms*sqft_living+yr_built+grade+condition+bedrooms*bathrooms+floors+yr_built*yr_renovated+sqft_lot+waterfront-bathrooms-bedrooms-sqft_living, data=train)
+summary(lm2)
+prednew <- predict(lm2, newdata=test)
+cor(prednew, test$price)
+residuals2 <- (prednew - test$price)
+mse2 <- mean(residuals2^2)
+mse2
+```
+
+###This new model has a correlation of 81.86%. It also explains 67% of the data. 
+
+#Algorithm 2 
+
+##Decision Trees 
+
+###Response: price
+###Predictors: grade, view, sqft_living, yr_built
+
+For my second algorithm I wanted to try a regression decision tree. I decided to split the data into train and test sets again. 
+
+```{r}
+library(tree)
+set.seed(1234)
+train2 = sample(1:nrow(houses), nrow(houses)/2)
+
+tree.houses = tree(price~grade+view+sqft_living+yr_built-avgprice, houses, subset = train2)
+#tree.houses = tree(price~., houses)
+summary(tree.houses)
+```
+
+I found it intresting that grade(quality of the house), sqft_living, and if it had a view were used to construct this tree. 
+
+If the grade of the house was less than 8.5 with a sqft living space greater than 2045 and build before 1954 the price predicted is $696,750.90
+
+If the house or grade was rated over 8.5 with a living space greater than 8260 square feet the price predicted is $4,621,200.00
+
+```{r}
+plot(tree.houses)
+text(tree.houses, cex=.6, pretty=1)
+```
+
+```{r}
+tree.houses
+```
+
+```{r}
+yhat = predict(tree.houses, newdata=houses[-train2,])
+house.test = houses[-train2, "price"]
+mse <-mean((yhat - house.test)^2)
+mse
+sqrt(mse)
+
+```
+
+###I thought this was very odd but considering these are expensive houses it makes a little sense. We have houses in the set worth over $7 million so being 241,729.34 off isn't too outrageous. Still this is pretty bad. 
+
+
+```{r}
+max(houses$price)
+```
+
+```{r}
+plot(yhat, house.test, pch=2, col="purple", xlab="yhat", ylab="house.test", main="Housing Data")
+abline(0,1, col="red")
+
+```
+
+
+I decided to try a random forest to see if I could improve the really high value of the mse. 
+
+##Random forest
+
+###Response: price
+###Predictors: All predictors except avgprice 
+
+```{r}
+library(randomForest)
+house.price <- randomForest(price~.-avgprice, data=houses, mtry=3, importance=TRUE, na.action=na.omit)
+house.price
+```
+
+
+```{r}
+yhat2 = predict(house.price, newdata=houses[-train2,])
+house.test2 = houses[-train2, "price"]
+mserand <-mean((yhat2 - house.test2)^2)
+mserand
+sqrt(mserand)
+```
+
+
+###Even with a random forest this leads us to predictions that are $78,482.55 off. This is much much better than before but still too high.   
+
+
+#Algorithm 3
+
+##Neural Network 
+
+I wanted to use a neural network. I wanted to construct this as a classification neural net to make it easier to predict on it. I decided to use the mean as my metric for the new column I created because I was more intrested in the average price of a house in this set. I had originally planned to only use regression here but I was having some difficulties that I eventually solved so I kept both models. Here I now use avgprice I created before splitting the data into train and test sets. 
+
+Now using my new attribute as a response I was able to create a neural network with 1 hidden layers. I chose to go with 1 layer due to how linear the data seemed to be. 
+
+##Classification Neural Net
+
+###Response: avgprice
+###Predictors: bedrooms, sqft_living, yr_built, condition
+
+```{r}
+library(neuralnet)
+#nn1 <- neuralnet(price~bathrooms+floors+sqft_living+grade+condition, data=train)
+#plot(nn1)
+
+housenet <- neuralnet(avgprice~bedrooms+sqft_living+yr_built+condition, train, hidden=1, lifesign="minimal", linear.output=FALSE, threshold=0.1)
+```
+
+I then plotted the network. I used predictors I felt are important to the price
+
+```{r}
+plot(housenet, rep="best")
+```
+
+I will now predict on this network.
+```{r}
+temp_test <- subset(test, select=c("bedrooms", "condition", "sqft_living", "yr_built"))
+housenet.results <- compute(housenet, temp_test)
+results <- data.frame(actual=test$avgprice, prediction=housenet.results$net.result)
+```
+
+
+```{r}
+results$round <- round(results$prediction)
+mean(results$round == results$actual)
+
+```
+
+###Using a neural network while very exciting wasn't as helpful as I would have expected. Even when given what I assumed would be the easier task of 1 or 0 as the response my model only was able to predict with 62.96% accuracy. 
+
+Here I built a regression neural network. I also normalized the data and retrained it. 
+
+```{r}
+normalize <- function(x) {
+  return ((x -min(x)) / (max(x) - min(x)))
+}
+
+house_norm <- as.data.frame(lapply(houses, normalize))
+
+set.seed(1234)
+i <- sample(1:nrow(houses), 0.70*nrow(houses), replace=FALSE)
+trainn <- house_norm[i,]
+testn <- house_norm[-i,]
+```
+
+##Regression Neural Net
+
+###Response: price
+###Predictors: bathrooms, sqft_living, condition, yr_built
+
+```{r}
+nnh <- neuralnet(price~bathrooms+sqft_living+condition+yr_built, data=trainn, hidden=3)
+plot(nnh)
+```
+
+```{r}
+resultnh <- compute(nnh, testn[,c(3,4,9,13)])
+prednh <- resultnh$net.result
+cor(prednh, testn$price)
+
+residualsnn <- (prednh - testn$price)
+mse2 <- mean(residualsnn^2)
+mse2
+```
+
+###Using a neural network for regression with price as my predictor I was able to obtain a correlation of 76.08%. 
+
+#Algorithm 4 
+
+##kNN for Regression
+
+###Response: price
+###Predictors: bedrooms, bathrooms, sqft_living, floors, condition, grade
+
+Finally I wanted to try nearest neighbor but instead of classification I wanted to do it using regression to see if I could beat my linear model. I used price as my target column here again. After messing with the amount of neighbors I found 10 to be optimal and giving me the best accuracy. 
+
+```{r}
+library(caret)
+fit <- knnreg(train[,c(2,3,4,6,9,10)], train[,c(1)], k=10)
+predictions <- predict(fit, test[,c(2,3,4,6,9,10)])
+cor(predictions, test$price)
+
+residualsknn <- (predictions - test$price)
+mseknn <- mean(residualsknn^2)
+mseknn
+```
+
+
+###The kNN for regression model had a correlation of 73.25%. Perhaps scaling even further would improve this. While less predictors improves accuracy I found that using all the ones I selected gave me the highest correlation prediction. 
+
+
+
+#In Conclusion 
+
+Since I wanted to predict a numeric predictor "price" I chose linear algorithms. I ran Linear Regression, Decision Tree including a Random Forest, Neural Network for classification and regression, and kNN for regression. 
+
+Linear Regression had 81.86% 
+Neural Network had 76.08% 
+kNN for Regression had 73.25% 
+Decision tree $78,482.55 off 
+
+MSE from algorithms: 
+
+45,493,137,091  lm1
+42,302,624,392  lm2
+58,433,075,757 decision tree
+6,128,176,116  random forest
+59,680,314,759 knn
+0.000963440485 neural network 
+
+Based on my MSE my neural network did the best. 
+
+The feature selection I tried was mostly using features I felt had strong correlations or would make sense to influence the price such as the number of bathrooms and size of living space. I usually start my models by using "." all predictors and working from there .
+
+The metrics I used to evaluate were predicting on the correlations in linear regression. Predicting on the yhat and finding the square root of the mse in my decision trees. In my regression neural net I predicted based on the correlations again. I did the same thing in my nearest neighbor algorithm. 
+
